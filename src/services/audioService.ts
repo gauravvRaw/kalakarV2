@@ -9,6 +9,7 @@ import {
 } from '../types/audio';
 import { CraftMetadata } from '../types/product';
 import { SAMPLE_CRAFTS } from '../data/sampleCrafts';
+import { translateAudioToEnglish } from '../api/client';
 
 /**
  * Normalizes input source into an AudioInputDetails object
@@ -27,10 +28,19 @@ export async function extractAudioDetails(source: AudioInputSource): Promise<Aud
         durationSeconds: matchedSample.sampleVoiceNote.durationSeconds,
       };
     }
+    const extension = source.split('?')[0].split('.').pop()?.toLowerCase();
+    const typeByExtension: Record<string, string> = {
+      m4a: 'audio/mp4',
+      mp3: 'audio/mpeg',
+      wav: 'audio/wav',
+      webm: 'audio/webm',
+      ogg: 'audio/ogg',
+      mp4: 'audio/mp4',
+    };
     return {
       uri: source,
       name: source.split('/').pop() || 'audio-input.wav',
-      type: 'audio/wav',
+      type: typeByExtension[extension || ''] || 'audio/mp4',
     };
   }
 
@@ -323,11 +333,11 @@ export async function processAudioInput(
   audio: AudioInputSource,
   options: ProcessAudioOptions = {}
 ): Promise<AudioTranscriptionResult> {
-  const { language = 'en', onProgress, craftContext } = options;
+  const { onProgress, craftContext } = options;
 
   const notify = (stage: AudioProcessingStatus['stage'], progress: number, message: string) => {
     if (onProgress) {
-      onProgress({ stage, progress, message, detectedLanguage: language });
+      onProgress({ stage, progress, message, detectedLanguage: 'en' });
     }
   };
 
@@ -336,38 +346,50 @@ export async function processAudioInput(
   const details = await extractAudioDetails(audio);
   const metadata = await analyzeAudioMetadata(details);
 
-  // Artificial brief yielding to allow UI animation frames to update smoothly
-  await new Promise((resolve) => setTimeout(resolve, 350));
-
-  // Stage 2: Signal Analysis & Noise Filtering
+  // Stage 2: Prepare the captured audio for transcription.
   notify(
     'analyzing',
     45,
-    `Analyzing acoustic signal (${metadata.durationSeconds}s, ${metadata.fileType}). Filtering noise...`
+    `Preparing audio (${metadata.durationSeconds}s, ${metadata.fileType})...`
   );
-  await new Promise((resolve) => setTimeout(resolve, 450));
 
-  // Stage 3: Dialect Speech Recognition & Transcription
-  notify(
-    'transcribing',
-    75,
-    `Transcribing dialect speech into accurate ${language.toUpperCase()} text...`
-  );
-  await new Promise((resolve) => setTimeout(resolve, 500));
-
-  const { transcript, confidence, detectedLanguage } = generateAccurateTranscript(
-    details,
-    language,
-    craftContext
-  );
+  let transcript: string;
+  let confidence: number | undefined;
+  let detectedLanguage = 'en';
+  if (details.blob || details.uri) {
+    notify('transcribing', 65, 'Transcribing your recording and translating it into English...');
+    const audioResponse = details.blob
+      ? null
+      : await fetch(details.uri as string);
+    if (audioResponse && !audioResponse.ok) {
+      throw new Error('Could not read the recorded audio. Please record it again.');
+    }
+    const audioBytes = details.blob
+      ? await details.blob.arrayBuffer()
+      : await (audioResponse as Response).arrayBuffer();
+    transcript = await translateAudioToEnglish(
+      audioBytes,
+      details.name || 'voice-recording.m4a',
+      details.type || 'audio/mp4',
+    );
+  } else {
+    // Sample voice notes have no audio asset; use their provided English transcript.
+    const sample = generateAccurateTranscript(details, 'en', craftContext);
+    transcript = sample.transcript;
+    confidence = sample.confidence;
+    detectedLanguage = sample.detectedLanguage;
+  }
 
   // Stage 4: Metadata Extraction
   notify('extracting', 90, 'Extracting artisan craft specifications and catalog fields...');
   await new Promise((resolve) => setTimeout(resolve, 300));
-  const extractedMetadata = extractCatalogFromTranscript(transcript, language);
+  const extractedMetadata = {
+    ...extractCatalogFromTranscript(transcript, 'en'),
+    craftStoryEn: transcript,
+  };
 
   // Stage 5: Complete
-  notify('complete', 100, `Transcript generated successfully (${Math.round(confidence * 100)}% accuracy)!`);
+  notify('complete', 100, 'English transcript generated from your audio.');
 
   return {
     transcript,

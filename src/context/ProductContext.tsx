@@ -58,6 +58,7 @@ interface ProductContextType {
   prevStep: () => void;
   setPreviewMode: (mode: 'enhanced' | 'original') => void;
   selectSampleCraft: (craft: SampleCraft) => void;
+  setDraftPhoto: (uri: string) => void;
 
   // Audio input & processing actions
   processAudioInput: (
@@ -65,7 +66,7 @@ interface ProductContextType {
     options?: ProcessAudioOptions
   ) => Promise<AudioTranscriptionResult>;
   startVoiceRecording: () => Promise<void>;
-  stopVoiceRecording: () => Promise<void>;
+  stopVoiceRecording: (recordedAudio?: AudioInputSource) => Promise<void>;
   cancelVoiceRecording: () => void;
   uploadAudioFile: (fileOrBlob: File | Blob) => Promise<void>;
   setLiveTranscriptDirect: (text: string) => void;
@@ -204,7 +205,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         // Update transcript with accurate generated text
         setLiveTranscript(result.transcript);
-        setTranscriptionConfidence(result.confidence);
+        setTranscriptionConfidence(result.confidence ?? null);
         setAudioMetadata(result.audioMetadata || null);
         if (result.audioUrl) {
           setCurrentAudioUrl(result.audioUrl);
@@ -281,7 +282,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
   /**
    * Stop Voice Recording and pass audio to processAudioInput()
    */
-  const stopVoiceRecording = useCallback(async () => {
+  const stopVoiceRecording = useCallback(async (recordedAudio?: AudioInputSource) => {
     setIsRecording(false);
 
     // Stop speech recognition
@@ -306,7 +307,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     // Feed recorded audio into the audio inputting function!
-    const audioPayload: AudioInputSource = recordedAudioBlob
+    const audioPayload: AudioInputSource = recordedAudio || (recordedAudioBlob
       ? recordedAudioBlob
       : {
           sampleId: activeDraft.sampleVoiceNote.id,
@@ -315,7 +316,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
             ? `recognized:${liveSpeechBufferRef.current}`
             : undefined,
           durationSeconds: Math.max(3, recordingSeconds),
-        };
+        });
 
     await processAudioInput(audioPayload);
   }, [activeDraft, recordingSeconds, processAudioInput]);
@@ -382,6 +383,11 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
     setUserPrice(craft.pricing.suggestedPrice);
     setPreviewMode('enhanced');
     setCurrentAudioUrl(null);
+  }, []);
+
+  const setDraftPhoto = useCallback((uri: string) => {
+    setActiveDraft((prev) => ({ ...prev, originalImage: uri, enhancedImage: uri }));
+    setPreviewMode('original');
   }, []);
 
   const adjustPrice = useCallback((delta: number) => {
@@ -501,6 +507,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
         prevStep,
         setPreviewMode,
         selectSampleCraft,
+        setDraftPhoto,
         processAudioInput,
         startVoiceRecording,
         stopVoiceRecording,

@@ -6,8 +6,10 @@ import {
   Image,
   TouchableOpacity,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { COLORS, SIZES } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
 import { useProduct } from '../../context/ProductContext';
@@ -22,10 +24,33 @@ export const Step1PhotoStudio: React.FC = () => {
     previewMode,
     setPreviewMode,
     selectSampleCraft,
+    setDraftPhoto,
     nextStep,
   } = useProduct();
 
   const isEnhanced = previewMode === 'enhanced';
+
+  const choosePhoto = async (useCamera: boolean) => {
+    try {
+      if (useCamera) {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert('Camera access needed', 'Allow camera access to take a product photo.');
+          return;
+        }
+      }
+
+      const result = useCamera
+        ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.9 })
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.9 });
+
+      if (!result.canceled && result.assets[0]) {
+        setDraftPhoto(result.assets[0].uri);
+      }
+    } catch {
+      Alert.alert('Unable to open photos', 'Please try again or choose a different image.');
+    }
+  };
 
   return (
     <ScrollView
@@ -36,6 +61,7 @@ export const Step1PhotoStudio: React.FC = () => {
       <View style={styles.actionRow}>
         <TouchableOpacity
           activeOpacity={0.8}
+          onPress={() => choosePhoto(true)}
           style={styles.cameraBtn}
           accessibilityRole="button"
           accessibilityLabel="Take Photo with Camera"
@@ -46,6 +72,7 @@ export const Step1PhotoStudio: React.FC = () => {
 
         <TouchableOpacity
           activeOpacity={0.8}
+          onPress={() => choosePhoto(false)}
           style={styles.uploadBtn}
           accessibilityRole="button"
           accessibilityLabel="Upload from Gallery"

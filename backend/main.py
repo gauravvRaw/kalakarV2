@@ -1,6 +1,11 @@
+import asyncio
+import json
+import os
+import urllib.error
+import urllib.request
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session as DbSession
 
@@ -33,6 +38,67 @@ app = FastAPI(
     description="Local name/password auth with per-user posts stored in SQLite.",
     lifespan=lifespan,
 )
+
+
+def _translate_audio_to_english(audio: bytes, filename: str, content_type: str) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Audio transcription is not configured. Set OPENAI_API_KEY on the backend.",
+        )
+
+    boundary = "----KalakaarAudioBoundary"
+    safe_name = filename.replace('"', "")
+    parts = [
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-1\r\n".encode(),
+        (
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+            f"filename=\"{safe_name}\"\r\nContent-Type: {content_type}\r\n\r\n"
+        ).encode(),
+        audio,
+        f"\r\n--{boundary}--\r\n".encode(),
+    ]
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/audio/translations",
+        data=b"".join(parts),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            result = json.loads(response.read())
+            transcript = result.get("text", "").strip()
+            if not transcript:
+                raise HTTPException(status_code=422, detail="No speech was detected in the recording.")
+            return transcript
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=502, detail=f"Audio transcription failed: {detail[:300]}") from error
+    except urllib.error.URLError as error:
+        raise HTTPException(status_code=502, detail="Could not reach the transcription service.") from error
+
+
+@app.post("/audio/translate")
+async def translate_audio(request: Request):
+    audio = await request.body()
+    if not audio:
+        raise HTTPException(status_code=400, detail="Audio file is empty.")
+    if len(audio) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio files must be 25 MB or smaller.")
+
+    content_type = request.headers.get("content-type", "audio/mp4").split(";", 1)[0]
+    filename = request.headers.get("x-audio-filename", "voice-recording.m4a")
+    try:
+        transcript = await asyncio.to_thread(
+            _translate_audio_to_english, audio, filename, content_type
+        )
+    except HTTPException:
+        raise
+    return {"text": transcript, "language": "en"}
 
 app.add_middleware(
     CORSMiddleware,

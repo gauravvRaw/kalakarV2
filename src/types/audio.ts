@@ -42,7 +42,7 @@ export type AudioInputSource = AudioInputDetails | Blob | File | string;
 
 export interface AudioTranscriptionResult {
   transcript: string;
-  confidence: number;
+  confidence?: number;
   detectedLanguage: string;
   durationSeconds: number;
   audioUrl?: string;

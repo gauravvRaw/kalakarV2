@@ -38,6 +38,35 @@ export function getApiBaseUrl(): string {
   return 'http://127.0.0.1:8000';
 }
 
+export async function translateAudioToEnglish(
+  audio: ArrayBuffer,
+  filename: string,
+  contentType: string,
+): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}/audio/translate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': contentType || 'audio/mp4',
+        'X-Audio-Filename': filename,
+      },
+      body: audio,
+    });
+  } catch {
+    throw new ApiUnreachableError('Could not connect to the audio transcription backend.');
+  }
+
+  const result = (await response.json()) as { text?: string; detail?: string };
+  if (!response.ok) {
+    throw new Error(result.detail || 'Audio transcription failed.');
+  }
+  if (!result.text?.trim()) {
+    throw new Error('No speech was detected in the recording.');
+  }
+  return result.text.trim();
+}
+
 function timeoutSignal(ms: number): AbortSignal {
   const controller = new AbortController();
   setTimeout(() => controller.abort(), ms);

@@ -8,8 +8,17 @@ import {
   Animated,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+} from 'expo-audio';
 import { COLORS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
 import { useProduct } from '../../context/ProductContext';
@@ -41,6 +50,58 @@ export const Step2VoiceCatalog: React.FC = () => {
 
   // Hidden web file input reference for audio upload
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const audioPlayer = useAudioPlayer(null);
+  const audioPlayerStatus = useAudioPlayerStatus(audioPlayer);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const loadedAudioUrl = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (currentAudioUrl && loadedAudioUrl.current !== currentAudioUrl) {
+      audioPlayer.replace(currentAudioUrl);
+      loadedAudioUrl.current = currentAudioUrl;
+    }
+  }, [audioPlayer, currentAudioUrl]);
+
+  const handleAudioPlayback = () => {
+    if (currentAudioUrl) {
+      if (audioPlayerStatus.playing) {
+        audioPlayer.pause();
+      } else {
+        audioPlayer.play();
+      }
+      return;
+    }
+    toggleAudioPlayback();
+  };
+
+  const handleRecordingToggle = async () => {
+    try {
+      if (isRecording) {
+        if (Platform.OS !== 'web') {
+          await audioRecorder.stop();
+          await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+          await stopVoiceRecording(audioRecorder.uri || undefined);
+        } else {
+          await stopVoiceRecording();
+        }
+        return;
+      }
+
+      if (Platform.OS !== 'web') {
+        const permission = await requestRecordingPermissionsAsync();
+        if (!permission.granted) return;
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        await audioRecorder.prepareToRecordAsync();
+        audioRecorder.record();
+      }
+      await startVoiceRecording();
+    } catch (error) {
+      Alert.alert(
+        'Audio transcription failed',
+        error instanceof Error ? error.message : 'Please try recording again.',
+      );
+    }
+  };
 
   // Pulsing animation values for the microphone button using useMemo
   const pulseScale = useMemo(() => new Animated.Value(1), []);
@@ -97,7 +158,9 @@ export const Step2VoiceCatalog: React.FC = () => {
         input.onchange = (e: any) => {
           const file = e.target?.files?.[0];
           if (file) {
-            uploadAudioFile(file);
+            uploadAudioFile(file).catch((error) => {
+              Alert.alert('Audio transcription failed', error instanceof Error ? error.message : 'Please try again.');
+            });
           }
         };
         input.click();
@@ -111,7 +174,9 @@ export const Step2VoiceCatalog: React.FC = () => {
   const handleWebFileInputChange = (event: any) => {
     const file = event.target?.files?.[0];
     if (file) {
-      uploadAudioFile(file);
+      uploadAudioFile(file).catch((error) => {
+        Alert.alert('Audio transcription failed', error instanceof Error ? error.message : 'Please try again.');
+      });
       // Reset input value so same file can be re-selected if needed
       event.target.value = '';
     }
@@ -146,7 +211,9 @@ export const Step2VoiceCatalog: React.FC = () => {
       : activeDraft.metadata.craftStoryEn;
 
   const activeAudioId = currentAudioUrl || activeDraft.sampleVoiceNote.id;
-  const isPlayingActiveAudio = playingAudioId === activeAudioId;
+  const isPlayingActiveAudio = currentAudioUrl
+    ? audioPlayerStatus.playing
+    : playingAudioId === activeAudioId;
   const activeDuration = audioMetadata?.durationSeconds || activeDraft.sampleVoiceNote.durationSeconds;
 
   return (
@@ -169,7 +236,7 @@ export const Step2VoiceCatalog: React.FC = () => {
       <View style={styles.actionRow}>
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={isRecording ? stopVoiceRecording : startVoiceRecording}
+          onPress={handleRecordingToggle}
           style={[styles.modeBtn, isRecording ? styles.modeBtnRecording : styles.modeBtnPrimary]}
           accessibilityRole="button"
           accessibilityLabel={isRecording ? 'Stop Recording' : 'Record Voice'}
@@ -223,7 +290,7 @@ export const Step2VoiceCatalog: React.FC = () => {
           {/* Central Touch Target (90px diameter) */}
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={isRecording ? stopVoiceRecording : startVoiceRecording}
+            onPress={handleRecordingToggle}
             style={[
               styles.micButton,
               isRecording && styles.micButtonRecording,
@@ -346,7 +413,7 @@ export const Step2VoiceCatalog: React.FC = () => {
         <View style={styles.transcriptionHeaderRow}>
           <View style={styles.speechBadge}>
             <Ionicons name="chatbubble-ellipses" size={16} color={COLORS.primary} />
-            <Text style={styles.speechBadgeText}>{t('speechPreview')}</Text>
+            <Text style={styles.speechBadgeText}>English transcription</Text>
           </View>
           <View style={styles.badgeRow}>
             {transcriptionConfidence && (
@@ -380,7 +447,7 @@ export const Step2VoiceCatalog: React.FC = () => {
         <View style={styles.audioPlayerRow}>
           <AudioButton
             isPlaying={isPlayingActiveAudio}
-            onToggle={() => toggleAudioPlayback(activeAudioId)}
+            onToggle={handleAudioPlayback}
             durationSeconds={activeDuration}
             label={isPlayingActiveAudio ? 'Playing Processed Audio...' : t('listenVoiceNote')}
             variant="full"

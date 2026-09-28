@@ -23,7 +23,21 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Kalakaar to record product voice descriptions.",
+          "enableBackgroundRecording": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Kalakaar to access photos so you can add product images.",
+          "cameraPermission": "Allow Kalakaar to use the camera to take product photos."
+        }
+      ]
     ]
   }
 }
