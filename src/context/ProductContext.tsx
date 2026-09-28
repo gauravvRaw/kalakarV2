@@ -285,12 +285,6 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stopVoiceRecording = useCallback(async (recordedAudio?: AudioInputSource) => {
     setIsRecording(false);
 
-    // Stop speech recognition
-    if (speechRecognizerRef.current) {
-      speechRecognizerRef.current.stop();
-      speechRecognizerRef.current = null;
-    }
-
     // Stop media recorder and assemble audio blob
     let recordedAudioBlob: Blob | null = null;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {

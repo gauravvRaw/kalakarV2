@@ -43,3 +43,5 @@ yarn-error.*
 # local SQLite auth database
 backend/*.db
 backend/*.db-journal
+
+.env
